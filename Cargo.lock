@@ -417,6 +417,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libvlc-sys"
+version = "0.2.0"
+source = "git+https://code.videolan.org/videolan/vlc-rs.git#55310d8bd325562f62fe606fd3295a635d9b3be6"
+dependencies = [
+ "libc",
+ "pkg-config",
+ "vswhom",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -604,6 +614,7 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "glutin",
+ "vlc-rs",
 ]
 
 [[package]]
@@ -802,6 +813,35 @@ name = "unicode-xid"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
+
+[[package]]
+name = "vlc-rs"
+version = "0.3.0"
+source = "git+https://code.videolan.org/videolan/vlc-rs.git#55310d8bd325562f62fe606fd3295a635d9b3be6"
+dependencies = [
+ "libc",
+ "libvlc-sys",
+]
+
+[[package]]
+name = "vswhom"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be979b7f07507105799e854203b470ff7c78a1639e330a58f183b5fea574608b"
+dependencies = [
+ "libc",
+ "vswhom-sys",
+]
+
+[[package]]
+name = "vswhom-sys"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22025f6d8eb903ebf920ea6933b70b1e495be37e2cb4099e62c80454aaf57c39"
+dependencies = [
+ "cc",
+ "libc",
+]
 
 [[package]]
 name = "wasi"
