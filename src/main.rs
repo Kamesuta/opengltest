@@ -2,6 +2,7 @@ mod support;
 
 extern crate vlc;
 
+use std::time::Instant;
 use std::sync::mpsc::channel;
 use vlc::Event as VlcEvent;
 use vlc::{EventType, Instance, Media, MediaPlayer, State};
@@ -10,6 +11,8 @@ use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
+
+const TARGET_FPS: u64 = 60;
 
 fn main() {
     let el = EventLoop::new();
@@ -33,7 +36,7 @@ fn main() {
 
     el.run(move |event, _, control_flow| {
         //println!("{:?}", event);
-        *control_flow = ControlFlow::Wait;
+        let start_time = Instant::now();
 
         match event {
             Event::LoopDestroyed => return,
@@ -44,12 +47,33 @@ fn main() {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
+                gl.draw_frame([1.0, 0.5, 0.7, 1.0], state.pos);
+                windowed_context.swap_buffers().unwrap();
             }
             _ => (),
         }
-        
-        gl.draw_frame([1.0, 0.5, 0.7, 1.0], state.pos);
-        windowed_context.swap_buffers().unwrap();
+
+        match *control_flow {
+            ControlFlow::Exit => (),
+            _ => {
+                /*
+                 * Grab window handle from the display (untested - based on API)
+                 */
+                windowed_context.window().request_redraw();
+                /*
+                 * Below logic to attempt hitting TARGET_FPS.
+                 * Basically, sleep for the rest of our milliseconds
+                 */
+                let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+
+                let wait_millis = match 1000 / TARGET_FPS >= elapsed_time {
+                    true => 1000 / TARGET_FPS - elapsed_time,
+                    false => 0
+                };
+                let new_inst = start_time + std::time::Duration::from_millis(wait_millis);
+                *control_flow = ControlFlow::WaitUntil(new_inst);
+            }
+        }
     });
 
     let args: Vec<String> = std::env::args().collect();
