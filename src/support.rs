@@ -31,6 +31,7 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
         gl.LinkProgram(program);
         gl.UseProgram(program);
 
+        // VBOを生成する関数
         let mut vb = std::mem::zeroed();
         gl.GenBuffers(1, &mut vb);
         gl.BindBuffer(gl::ARRAY_BUFFER, vb);
@@ -41,11 +42,16 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
             gl::STATIC_DRAW,
         );
 
-        if gl.BindVertexArray.is_loaded() {
-            let mut vao = std::mem::zeroed();
-            gl.GenVertexArrays(1, &mut vao);
-            gl.BindVertexArray(vao);
-        }
+        // IBOを生成する関数
+        let mut ib = std::mem::zeroed();
+        gl.GenBuffers(1, &mut ib);
+        gl.BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ib);
+        gl.BufferData(
+            gl::ELEMENT_ARRAY_BUFFER,
+            (INDEX_DATA.len() * std::mem::size_of::<u8>()) as gl::types::GLsizeiptr,
+            INDEX_DATA.as_ptr() as *const _,
+            gl::STATIC_DRAW,
+        );
 
         let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
         let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
@@ -77,15 +83,21 @@ impl Gl {
         unsafe {
             self.gl.ClearColor(color[0], color[1], color[2], color[3]);
             self.gl.Clear(gl::COLOR_BUFFER_BIT);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, 3);
+            self.gl.DrawElements(gl::TRIANGLES, INDEX_DATA.len() as i32, gl::UNSIGNED_BYTE, std::ptr::null());
         }
     }
 }
 
 #[rustfmt::skip]
-static VERTEX_DATA: [f32; 15] = [
+static INDEX_DATA: [u8; 6] = [
+    0, 1, 2, 0, 3, 2,
+];
+
+#[rustfmt::skip]
+static VERTEX_DATA: [f32; 20] = [
     -0.5, -0.5,  1.0,  0.0,  0.0,
-     0.0,  0.5,  0.0,  1.0,  0.0,
+    -0.5,  0.5,  0.0,  1.0,  0.0,
+     0.5,  0.5,  0.0,  0.0,  1.0,
      0.5, -0.5,  0.0,  0.0,  1.0,
 ];
 
