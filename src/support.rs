@@ -79,11 +79,17 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
 }
 
 impl Gl {
-    pub fn draw_frame(&self, color: [f32; 4]) {
+    pub fn draw_frame(&self, color: [f32; 4], pos: [f64; 2]) {
         unsafe {
+            println!("pos: {:?}", pos);
+
             self.gl.ClearColor(color[0], color[1], color[2], color[3]);
             self.gl.Clear(gl::COLOR_BUFFER_BIT);
+
+            self.gl.PushMatrix();
+            self.gl.Translated(pos[0] / 400.0, pos[1] / -400.0, 0.0);
             self.gl.DrawElements(gl::TRIANGLES, INDEX_DATA.len() as i32, gl::UNSIGNED_BYTE, std::ptr::null());
+            self.gl.PopMatrix();
         }
     }
 }
@@ -102,19 +108,19 @@ static VERTEX_DATA: [f32; 20] = [
 ];
 
 const VS_SRC: &'static [u8] = b"
-#version 100
+#version 410 compatibility
 precision mediump float;
-attribute vec2 position;
+attribute vec4 position;
 attribute vec3 color;
 varying vec3 v_color;
 void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
+    gl_Position = gl_ModelViewProjectionMatrix * position;
     v_color = color;
 }
 \0";
 
 const FS_SRC: &'static [u8] = b"
-#version 100
+#version 410 compatibility
 precision mediump float;
 varying vec3 v_color;
 void main() {
