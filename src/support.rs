@@ -1,6 +1,5 @@
 use glutin::{self, PossiblyCurrent};
 
-use super::texture::Texture;
 use std::ffi::CStr;
 
 pub struct Gl {
@@ -76,7 +75,26 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
         gl.EnableVertexAttribArray(uv_attrib as gl::types::GLuint);
 
         // テクスチャ
-        Texture::new(&gl, "res/tuku.png", 0);
+        let img = image::open("res/tuku.png").unwrap();
+        let img = match img {
+            image::DynamicImage::ImageRgb8(img) => img,
+            x => x.to_rgb8()
+        };
+        let width = img.width();
+        let height = img.height();
+
+        let mut id = std::mem::zeroed();
+        gl.ActiveTexture(gl::TEXTURE0);
+        gl.GenTextures(1, &mut id);
+        gl.BindTexture(gl::TEXTURE_2D, id);
+
+        gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR_MIPMAP_LINEAR as i32);
+        gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+
+        gl.TexImage2D(gl::TEXTURE_2D, 0, gl::RGB as i32, width as i32, height as i32, 0, gl::RGB, gl::UNSIGNED_BYTE, (&img as &[u8]).as_ptr() as *const _);
+        gl.GenerateMipmap(gl::TEXTURE_2D);
     }
 
     Gl { gl }

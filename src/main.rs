@@ -1,10 +1,9 @@
 mod support;
-mod texture;
 
 extern crate vlc;
 
-use std::time::Instant;
 use std::sync::mpsc::channel;
+use std::time::Instant;
 use vlc::Event as VlcEvent;
 use vlc::{EventType, Instance, Media, MediaPlayer, State};
 
@@ -13,9 +12,108 @@ use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
 
+use std::ffi::CString;
+use std::sync::Mutex;
+use libc::c_void;
+use vlc_sys as sys;
+
 const TARGET_FPS: u64 = 60;
 
+struct VlcCallback {
+    pixel_buffer: Vec<u32>,
+    need_update: bool,
+    video_width: u32,
+    video_height: u32,
+    vlc_mutex: Mutex<bool>,
+}
+
+impl VlcCallback {
+    fn new(video_width: u32, video_height: u32) -> Self {
+        VlcCallback {
+            pixel_buffer: vec![0; video_width as usize * video_height as usize],
+            need_update: false,
+            video_width,
+            video_height,
+            vlc_mutex: Mutex::new(false),
+        }
+    }
+
+    fn register(&mut self, player: &MediaPlayer) {
+        unsafe {
+            let c_str = CString::new("RV32").unwrap();
+            sys::libvlc_video_set_format(
+                player.raw(),
+                c_str.as_ptr(),
+                self.video_width,
+                self.video_height,
+                self.video_width * 4,
+            );
+            sys::libvlc_video_set_callbacks(
+                player.raw(),
+                Some(Self::vlc_lock),
+                Some(Self::vlc_unlock),
+                Some(Self::vlc_display),
+                self as *mut _ as *mut c_void,
+            );
+        }
+    }
+
+    unsafe extern "C" fn vlc_lock(
+        opaque: *mut c_void,
+        planes: *mut *mut c_void,
+    ) -> *mut c_void {
+        let this: &mut VlcCallback = &mut *(opaque as *mut VlcCallback);
+        *(this.vlc_mutex.lock().unwrap()) = true;
+        *planes = this.pixel_buffer.as_mut_ptr() as *mut c_void;
+        return std::ptr::null_mut();
+    }
+    
+    unsafe extern "C" fn vlc_unlock(
+        opaque: *mut c_void,
+        picture: *mut c_void,
+        planes: *const *mut c_void,
+    ) {
+        let this: &mut VlcCallback = &mut *(opaque as *mut VlcCallback);
+        this.need_update = true;
+        *(this.vlc_mutex.lock().unwrap()) = false;
+    }
+    
+    extern "C" fn vlc_display(opaque: *mut c_void, picture: *mut c_void) {}    
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    let path = match args.get(1) {
+        Some(s) => s,
+        None => {
+            println!("Usage: cli_audio_player path_to_a_media_file");
+            return;
+        }
+    };
+    let instance = Instance::new().unwrap();
+
+    let md = Media::new_path(&instance, path).unwrap();
+    let mdp = MediaPlayer::new(&instance).unwrap();
+    let (tx, rx) = channel::<()>();
+    let em = md.event_manager();
+    let _ = em.attach(EventType::MediaStateChanged, move |e, _| match e {
+        VlcEvent::MediaStateChanged(s) => {
+            println!("State : {:?}", s);
+            if s == State::Ended || s == State::Error {
+                tx.send(()).unwrap();
+            }
+        }
+        _ => (),
+    });
+
+    let mut callback = VlcCallback::new(512, 512);
+    callback.register(&mdp);
+    
+    mdp.set_media(&md);
+    // Start playing
+    mdp.play().unwrap();
+
     let el = EventLoop::new();
     let wb = WindowBuilder::new().with_title("A fantastic window!");
 
@@ -69,7 +167,7 @@ fn main() {
 
                 let wait_millis = match 1000 / TARGET_FPS >= elapsed_time {
                     true => 1000 / TARGET_FPS - elapsed_time,
-                    false => 0
+                    false => 0,
                 };
                 let new_inst = start_time + std::time::Duration::from_millis(wait_millis);
                 *control_flow = ControlFlow::WaitUntil(new_inst);
@@ -77,33 +175,6 @@ fn main() {
         }
     });
 
-    let args: Vec<String> = std::env::args().collect();
-
-    let path = match args.get(1) {
-        Some(s) => s,
-        None => {
-            println!("Usage: cli_audio_player path_to_a_media_file");
-            return;
-        }
-    };
-    let instance = Instance::new().unwrap();
-
-    let md = Media::new_path(&instance, path).unwrap();
-    let mdp = MediaPlayer::new(&instance).unwrap();
-    let (tx, rx) = channel::<()>();
-    let em = md.event_manager();
-    let _ = em.attach(EventType::MediaStateChanged, move |e, _| match e {
-        VlcEvent::MediaStateChanged(s) => {
-            println!("State : {:?}", s);
-            if s == State::Ended || s == State::Error {
-                tx.send(()).unwrap();
-            }
-        }
-        _ => (),
-    });
-    mdp.set_media(&md);
-    // Start playing
-    mdp.play().unwrap();
     // Wait for end state
     rx.recv().unwrap();
 }

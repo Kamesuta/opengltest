@@ -924,6 +924,8 @@ dependencies = [
  "gl",
  "glutin",
  "image",
+ "libc",
+ "libvlc-sys",
  "vlc-rs",
 ]
 

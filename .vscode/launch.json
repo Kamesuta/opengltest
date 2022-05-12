@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["C:\\Users\\Kamesuta\\Downloads\\RealisticFlower.mp4"],
+            "args": ["${workspaceFolder}/res/tuku.png"],
             "cwd": "${workspaceFolder}"
         },
         {
