@@ -1,4 +1,5 @@
 mod support;
+mod texture;
 
 extern crate vlc;
 

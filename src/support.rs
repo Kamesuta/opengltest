@@ -1,5 +1,6 @@
 use glutin::{self, PossiblyCurrent};
 
+use super::texture::Texture;
 use std::ffi::CStr;
 
 pub struct Gl {
@@ -53,26 +54,29 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
             gl::STATIC_DRAW,
         );
 
-        let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
-        let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
+        let pos_attrib = gl.GetAttribLocation(program, b"pos\0".as_ptr() as *const _);
+        let uv_attrib = gl.GetAttribLocation(program, b"tex_coord\0".as_ptr() as *const _);
         gl.VertexAttribPointer(
             pos_attrib as gl::types::GLuint,
-            2,
+            3,
             gl::FLOAT,
             0,
             5 * std::mem::size_of::<f32>() as gl::types::GLsizei,
             std::ptr::null(),
         );
         gl.VertexAttribPointer(
-            color_attrib as gl::types::GLuint,
-            3,
+            uv_attrib as gl::types::GLuint,
+            2,
             gl::FLOAT,
             0,
             5 * std::mem::size_of::<f32>() as gl::types::GLsizei,
-            (2 * std::mem::size_of::<f32>()) as *const () as *const _,
+            (3 * std::mem::size_of::<f32>()) as *const () as *const _,
         );
         gl.EnableVertexAttribArray(pos_attrib as gl::types::GLuint);
-        gl.EnableVertexAttribArray(color_attrib as gl::types::GLuint);
+        gl.EnableVertexAttribArray(uv_attrib as gl::types::GLuint);
+
+        // テクスチャ
+        Texture::new(&gl, "res/tuku.png", 0);
     }
 
     Gl { gl }
@@ -86,6 +90,13 @@ impl Gl {
             self.gl.ClearColor(color[0], color[1], color[2], color[3]);
             self.gl.Clear(gl::COLOR_BUFFER_BIT);
 
+            self.gl.MatrixMode(gl::PROJECTION); //投影変換モードへ
+            self.gl.LoadIdentity(); //投影変換の変換行列を単位行列で初期化
+            self.gl.Ortho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0); //各軸-1.0～1.0で囲まれる立方体の範囲を並行投影
+        
+            self.gl.MatrixMode(gl::MODELVIEW); //視野変換・モデリング変換モードへ
+            self.gl.LoadIdentity(); //視野変換・モデリング変換の変換行列を単位行列で初期化
+        
             self.gl.PushMatrix();
             self.gl.Translated(pos[0] / 400.0, pos[1] / -400.0, 0.0);
             self.gl.DrawElements(gl::TRIANGLES, INDEX_DATA.len() as i32, gl::UNSIGNED_BYTE, std::ptr::null());
@@ -101,29 +112,38 @@ static INDEX_DATA: [u8; 6] = [
 
 #[rustfmt::skip]
 static VERTEX_DATA: [f32; 20] = [
-    -0.5, -0.5,  1.0,  0.0,  0.0,
+    -0.5, -0.5,  0.0,  0.0,  0.0,
     -0.5,  0.5,  0.0,  1.0,  0.0,
-     0.5,  0.5,  0.0,  0.0,  1.0,
+     0.5,  0.5,  0.0,  1.0,  1.0,
      0.5, -0.5,  0.0,  0.0,  1.0,
 ];
 
 const VS_SRC: &'static [u8] = b"
 #version 410 compatibility
-precision mediump float;
-attribute vec4 position;
-attribute vec3 color;
-varying vec3 v_color;
-void main() {
-    gl_Position = gl_ModelViewProjectionMatrix * position;
-    v_color = color;
+in vec4 pos;
+in vec2 tex_coord;
+
+out vec2 texture_coord;
+
+void main()
+{
+    gl_Position = gl_ModelViewProjectionMatrix * pos;
+    //gl_Position = pos;
+    texture_coord = tex_coord;
 }
 \0";
 
 const FS_SRC: &'static [u8] = b"
 #version 410 compatibility
-precision mediump float;
-varying vec3 v_color;
-void main() {
-    gl_FragColor = vec4(v_color, 1.0);
+out vec4 FragColor;
+
+in vec2 texture_coord;
+
+uniform sampler2D texture0;
+
+void main()
+{
+    FragColor = texture(texture0, texture_coord);
+    //FragColor = vec4(texture_coord.x, texture_coord.y, 0.0, 1.0);
 }
 \0";
