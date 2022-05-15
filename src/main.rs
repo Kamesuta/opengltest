@@ -12,9 +12,9 @@ use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
 
+use libc::c_void;
 use std::ffi::CString;
 use std::sync::Mutex;
-use libc::c_void;
 use vlc_sys as sys;
 
 const TARGET_FPS: u64 = 60;
@@ -40,13 +40,13 @@ impl VlcCallback {
 
     fn register(&mut self, player: &MediaPlayer) {
         unsafe {
-            let c_str = CString::new("RV32").unwrap();
+            let c_str = CString::new("RV24").unwrap();
             sys::libvlc_video_set_format(
                 player.raw(),
                 c_str.as_ptr(),
                 self.video_width,
                 self.video_height,
-                self.video_width * 4,
+                self.video_width * 3,
             );
             sys::libvlc_video_set_callbacks(
                 player.raw(),
@@ -58,16 +58,12 @@ impl VlcCallback {
         }
     }
 
-    unsafe extern "C" fn vlc_lock(
-        opaque: *mut c_void,
-        planes: *mut *mut c_void,
-    ) -> *mut c_void {
+    unsafe extern "C" fn vlc_lock(opaque: *mut c_void, planes: *mut *mut c_void) -> *mut c_void {
         let this: &mut VlcCallback = &mut *(opaque as *mut VlcCallback);
         *(this.vlc_mutex.lock().unwrap()) = true;
         *planes = this.pixel_buffer.as_mut_ptr() as *mut c_void;
         return std::ptr::null_mut();
     }
-    
     unsafe extern "C" fn vlc_unlock(
         opaque: *mut c_void,
         picture: *mut c_void,
@@ -77,8 +73,8 @@ impl VlcCallback {
         this.need_update = true;
         *(this.vlc_mutex.lock().unwrap()) = false;
     }
-    
-    extern "C" fn vlc_display(opaque: *mut c_void, picture: *mut c_void) {}    
+
+    extern "C" fn vlc_display(opaque: *mut c_void, picture: *mut c_void) {}
 }
 
 fn main() {
@@ -109,7 +105,6 @@ fn main() {
 
     let mut callback = VlcCallback::new(512, 512);
     callback.register(&mdp);
-    
     mdp.set_media(&md);
     // Start playing
     mdp.play().unwrap();
@@ -131,6 +126,7 @@ fn main() {
     }
 
     let gl = support::load(&windowed_context.context());
+    //gl.upload_texture_img("res/tuku.png");
     let mut state = GameState { pos: [0.0, 0.0] };
 
     el.run(move |event, _, control_flow| {
@@ -146,6 +142,21 @@ fn main() {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
+                match callback.vlc_mutex.try_lock() {
+                    Ok(locked) => {
+                        if !*locked {
+                            unsafe {
+                                gl.upload_texture(
+                                    callback.pixel_buffer.as_ptr() as *const _,
+                                    callback.video_width,
+                                    callback.video_height,
+                                );
+                            }
+                            callback.need_update = false;
+                        }
+                    }
+                    Err(_) => (),
+                };
                 gl.draw_frame([1.0, 0.5, 0.7, 1.0], state.pos);
                 windowed_context.swap_buffers().unwrap();
             }

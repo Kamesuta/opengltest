@@ -4,13 +4,16 @@ use std::ffi::CStr;
 
 pub struct Gl {
     pub gl: gl::Gl,
+    pub texture_id: u32,
 }
 
 pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
     let gl = gl::Gl::load_with(|ptr| gl_context.get_proc_address(ptr) as *const _);
 
     let version = unsafe {
-        let data = CStr::from_ptr(gl.GetString(gl::VERSION) as *const _).to_bytes().to_vec();
+        let data = CStr::from_ptr(gl.GetString(gl::VERSION) as *const _)
+            .to_bytes()
+            .to_vec();
         String::from_utf8(data).unwrap()
     };
 
@@ -18,11 +21,21 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
 
     unsafe {
         let vs = gl.CreateShader(gl::VERTEX_SHADER);
-        gl.ShaderSource(vs, 1, [VS_SRC.as_ptr() as *const _].as_ptr(), std::ptr::null());
+        gl.ShaderSource(
+            vs,
+            1,
+            [VS_SRC.as_ptr() as *const _].as_ptr(),
+            std::ptr::null(),
+        );
         gl.CompileShader(vs);
 
         let fs = gl.CreateShader(gl::FRAGMENT_SHADER);
-        gl.ShaderSource(fs, 1, [FS_SRC.as_ptr() as *const _].as_ptr(), std::ptr::null());
+        gl.ShaderSource(
+            fs,
+            1,
+            [FS_SRC.as_ptr() as *const _].as_ptr(),
+            std::ptr::null(),
+        );
         gl.CompileShader(fs);
 
         let program = gl.CreateProgram();
@@ -73,37 +86,63 @@ pub fn load(gl_context: &glutin::Context<PossiblyCurrent>) -> Gl {
         );
         gl.EnableVertexAttribArray(pos_attrib as gl::types::GLuint);
         gl.EnableVertexAttribArray(uv_attrib as gl::types::GLuint);
+    }
 
-        // テクスチャ
-        let img = image::open("res/tuku.png").unwrap();
-        let img = match img {
-            image::DynamicImage::ImageRgb8(img) => img,
-            x => x.to_rgb8()
-        };
-        let width = img.width();
-        let height = img.height();
-
-        let mut id = std::mem::zeroed();
+    let texture_id = unsafe {
+        let mut texture_id = std::mem::zeroed();
         gl.ActiveTexture(gl::TEXTURE0);
-        gl.GenTextures(1, &mut id);
-        gl.BindTexture(gl::TEXTURE_2D, id);
+        gl.GenTextures(1, &mut texture_id);
+        gl.BindTexture(gl::TEXTURE_2D, texture_id);
 
         gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
         gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
-        gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR_MIPMAP_LINEAR as i32);
+        gl.TexParameteri(
+            gl::TEXTURE_2D,
+            gl::TEXTURE_MIN_FILTER,
+            gl::LINEAR_MIPMAP_LINEAR as i32,
+        );
         gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+        texture_id
+    };
 
-        gl.TexImage2D(gl::TEXTURE_2D, 0, gl::RGB as i32, width as i32, height as i32, 0, gl::RGB, gl::UNSIGNED_BYTE, (&img as &[u8]).as_ptr() as *const _);
-        gl.GenerateMipmap(gl::TEXTURE_2D);
-    }
-
-    Gl { gl }
+    Gl { gl, texture_id }
 }
 
 impl Gl {
+    pub unsafe fn upload_texture(&self, texture_buffer: *const libc::c_void, texture_width: u32, texture_height: u32) {
+        self.gl.BindTexture(gl::TEXTURE_2D, self.texture_id);
+        self.gl.PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        self.gl.TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGB as i32,
+            texture_width as i32,
+            texture_height as i32,
+            0,
+            gl::RGB,
+            gl::UNSIGNED_BYTE,
+            texture_buffer,
+        );
+        self.gl.GenerateMipmap(gl::TEXTURE_2D);
+    }
+
+    pub fn upload_texture_img(&self, path: &str) {
+        // テクスチャ
+        let img = image::open(path).unwrap();
+        let img = match img {
+            image::DynamicImage::ImageRgb8(img) => img,
+            x => x.to_rgb8(),
+        };
+        let width = img.width();
+        let height = img.height();
+        unsafe {
+            self.upload_texture((&img as &[u8]).as_ptr() as *const _, width, height);
+        }
+    }
+
     pub fn draw_frame(&self, color: [f32; 4], pos: [f64; 2]) {
         unsafe {
-            println!("pos: {:?}", pos);
+            //println!("pos: {:?}", pos);
 
             self.gl.ClearColor(color[0], color[1], color[2], color[3]);
             self.gl.Clear(gl::COLOR_BUFFER_BIT);
@@ -111,13 +150,16 @@ impl Gl {
             self.gl.MatrixMode(gl::PROJECTION); //投影変換モードへ
             self.gl.LoadIdentity(); //投影変換の変換行列を単位行列で初期化
             self.gl.Ortho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0); //各軸-1.0～1.0で囲まれる立方体の範囲を並行投影
-        
             self.gl.MatrixMode(gl::MODELVIEW); //視野変換・モデリング変換モードへ
             self.gl.LoadIdentity(); //視野変換・モデリング変換の変換行列を単位行列で初期化
-        
             self.gl.PushMatrix();
             self.gl.Translated(pos[0] / 400.0, pos[1] / -400.0, 0.0);
-            self.gl.DrawElements(gl::TRIANGLES, INDEX_DATA.len() as i32, gl::UNSIGNED_BYTE, std::ptr::null());
+            self.gl.DrawElements(
+                gl::TRIANGLES,
+                INDEX_DATA.len() as i32,
+                gl::UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
             self.gl.PopMatrix();
         }
     }
