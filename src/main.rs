@@ -79,6 +79,7 @@ impl VlcCallback {
 
 fn main() {
     // TODO: Linux, Mac対応
+    // TODO: Audio OpenAL
     // OK: YouTube対応
     // OK: 一時停止したときにポーズされるようにする
     let args: Vec<String> = std::env::args().collect();
@@ -97,6 +98,20 @@ fn main() {
 
     let mut callback = VlcCallback::new(512, 512);
     callback.register(&mdp);
+
+    let c_str = CString::new("f32l").unwrap();
+    unsafe {
+        sys::libvlc_audio_set_format(mdp.raw(), c_str.as_ptr(), 48000, 2);
+    }
+    mdp.set_callbacks(
+        |samples, count, pts| {
+            println!("{} {}", count, pts);
+        },
+        None,
+        None,
+        None,
+        None,
+    );
 
     let (tx, rx) = channel::<()>();
     let em = md.event_manager();
