@@ -78,6 +78,9 @@ impl VlcCallback {
 }
 
 fn main() {
+    // TODO: Linux, Mac対応
+    // OK: YouTube対応
+    // OK: 一時停止したときにポーズされるようにする
     let args: Vec<String> = std::env::args().collect();
 
     let path = match args.get(1) {
@@ -89,22 +92,58 @@ fn main() {
     };
     let instance = Instance::new().unwrap();
 
-    let md = Media::new_path(&instance, path).unwrap();
+    let md = Media::new_location(&instance, path).unwrap();
     let mdp = MediaPlayer::new(&instance).unwrap();
+
+    let mut callback = VlcCallback::new(512, 512);
+    callback.register(&mdp);
+
     let (tx, rx) = channel::<()>();
     let em = md.event_manager();
-    let _ = em.attach(EventType::MediaStateChanged, move |e, _| match e {
-        VlcEvent::MediaStateChanged(s) => {
-            println!("State : {:?}", s);
-            if s == State::Ended || s == State::Error {
-                tx.send(()).unwrap();
+    let _ = em.attach(EventType::MediaParsedChanged, move |e, _| match e {
+        VlcEvent::MediaParsedChanged(s) => {
+            match s as u32 {
+                sys::libvlc_media_parsed_status_t_libvlc_media_parsed_status_done => {
+                    // Media parsed
+                    tx.send(()).unwrap();
+                }
+                _ => {
+                    println!("Media not parsed");
+                }
             }
         }
         _ => (),
     });
 
-    let mut callback = VlcCallback::new(512, 512);
-    callback.register(&mdp);
+    let md = unsafe {
+        sys::libvlc_media_parse_with_options(
+            md.raw(),
+            sys::libvlc_media_parse_flag_t_libvlc_media_parse_network,
+            -1,
+        );
+        rx.recv().unwrap();
+        let subitems: *mut sys::libvlc_media_list_t = sys::libvlc_media_subitems(md.raw());
+        let media = sys::libvlc_media_list_item_at_index(subitems, 0);
+        struct MediaStruct {
+            ptr: *mut sys::libvlc_media_t,
+        }
+        let media_st = MediaStruct { ptr: media };
+        assert!(media_st.ptr != std::ptr::null_mut());
+        let md: Media = std::mem::transmute(media_st);
+        md
+    };
+
+    let em = md.event_manager();
+    let _ = em.attach(EventType::MediaStateChanged, move |e, _| match e {
+        VlcEvent::MediaStateChanged(s) => {
+            println!("State : {:?}", s);
+            if s == State::Ended || s == State::Error {
+                // Ended
+            }
+        }
+        _ => (),
+    });
+
     mdp.set_media(&md);
     // Start playing
     mdp.play().unwrap();
@@ -185,7 +224,4 @@ fn main() {
             }
         }
     });
-
-    // Wait for end state
-    rx.recv().unwrap();
 }

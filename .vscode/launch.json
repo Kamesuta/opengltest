@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["${workspaceFolder}/res/tuku.png"],
+            "args": ["https://www.youtube.com/watch?v=2CGcV4gTS9o"],
             "cwd": "${workspaceFolder}"
         },
         {
