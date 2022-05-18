@@ -1,5 +1,5 @@
-mod support;
 mod media;
+mod support;
 
 extern crate vlc;
 
@@ -14,70 +14,10 @@ use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
 
 use libc::c_void;
-use std::ffi::CString;
-use std::sync::Mutex;
-use vlc_sys as sys;
-use media::MediaExt;
+use media::{MediaExt, MediaPlayerExt};
+use std::sync::{Arc, Mutex};
 
 const TARGET_FPS: u64 = 60;
-
-struct VlcCallback {
-    pixel_buffer: Vec<u32>,
-    need_update: bool,
-    video_width: u32,
-    video_height: u32,
-    vlc_mutex: Mutex<bool>,
-}
-
-impl VlcCallback {
-    fn new(video_width: u32, video_height: u32) -> Self {
-        VlcCallback {
-            pixel_buffer: vec![0; video_width as usize * video_height as usize],
-            need_update: false,
-            video_width,
-            video_height,
-            vlc_mutex: Mutex::new(false),
-        }
-    }
-
-    fn register(&mut self, player: &MediaPlayer) {
-        unsafe {
-            let c_str = CString::new("RV24").unwrap();
-            sys::libvlc_video_set_format(
-                player.raw(),
-                c_str.as_ptr(),
-                self.video_width,
-                self.video_height,
-                self.video_width * 3,
-            );
-            sys::libvlc_video_set_callbacks(
-                player.raw(),
-                Some(Self::vlc_lock),
-                Some(Self::vlc_unlock),
-                Some(Self::vlc_display),
-                self as *mut _ as *mut c_void,
-            );
-        }
-    }
-
-    unsafe extern "C" fn vlc_lock(opaque: *mut c_void, planes: *mut *mut c_void) -> *mut c_void {
-        let this: &mut VlcCallback = &mut *(opaque as *mut VlcCallback);
-        *(this.vlc_mutex.lock().unwrap()) = true;
-        *planes = this.pixel_buffer.as_mut_ptr() as *mut c_void;
-        return std::ptr::null_mut();
-    }
-    unsafe extern "C" fn vlc_unlock(
-        opaque: *mut c_void,
-        picture: *mut c_void,
-        planes: *const *mut c_void,
-    ) {
-        let this: &mut VlcCallback = &mut *(opaque as *mut VlcCallback);
-        this.need_update = true;
-        *(this.vlc_mutex.lock().unwrap()) = false;
-    }
-
-    extern "C" fn vlc_display(opaque: *mut c_void, picture: *mut c_void) {}
-}
 
 fn main() -> Result<(), String> {
     // TODO: Linux, Mac対応
@@ -97,15 +37,42 @@ fn main() -> Result<(), String> {
     let md = Media::new_location(&instance, path).ok_or("Failed to create media")?;
     let mdp = MediaPlayer::new(&instance).ok_or("Failed to create media player")?;
 
-    let mut callback = VlcCallback::new(512, 512);
-    callback.register(&mdp);
-
-    let c_str = CString::new("f32l").map_err(|err| err.to_string())?;
-    unsafe {
-        sys::libvlc_audio_set_format(mdp.raw(), c_str.as_ptr(), 48000, 2);
+    struct VlcContext {
+        pixel_buffer: Vec<u32>,
+        need_update: bool,
+        locked: bool,
     }
+    
+    let (video_width, video_height) = (512, 512);
+    mdp.set_video_format(
+        "RV24",
+        video_width,
+        video_height,
+        video_width * 3,
+    );
+    let context = Arc::new(Mutex::new(VlcContext {
+        pixel_buffer: vec![0; video_width as usize * video_height as usize],
+        need_update: false,
+        locked: false,
+    }));
+    let c1 = Arc::clone(&context);
+    let c2 = Arc::clone(&context);
+    mdp.set_video_callbacks(
+        move || {
+            let mut context = c1.lock().unwrap();
+            context.locked = true;
+            context.pixel_buffer.as_mut_ptr() as *mut c_void
+        },
+        Some(Box::new(move || {
+            let mut context = c2.lock().unwrap();
+            context.locked = false;
+        })),
+        Some(Box::new(|| {})),
+    );
+
+    mdp.set_audio_format("f32l", 48000, 2);
     mdp.set_callbacks(
-        |samples, count, pts| {
+        |_samples, count, pts| {
             println!("{} {}", count, pts);
         },
         None,
@@ -119,7 +86,7 @@ fn main() -> Result<(), String> {
     let _ = em.attach(EventType::MediaParsedChanged, move |e, _| match e {
         VlcEvent::MediaParsedChanged(s) => {
             match s as u32 {
-                sys::libvlc_media_parsed_status_t_libvlc_media_parsed_status_done => {
+                media::MediaParsedStatusDone => {
                     // Media parsed
                     tx.send(()).unwrap();
                 }
@@ -132,12 +99,13 @@ fn main() -> Result<(), String> {
     });
 
     let md = {
-        md.parse_with_options(
-            sys::libvlc_media_parse_flag_t_libvlc_media_parse_network,
-            -1,
-        )?;
+        md.parse_with_options(media::MediaParseNetwork, -1)?;
         rx.recv().unwrap();
-        md.subitems().item_at_index(0)
+        if let Some(submd) = md.subitems().item_at_index(0) {
+            submd
+        } else {
+            md
+        }
     };
 
     let em = md.event_manager();
@@ -158,7 +126,9 @@ fn main() -> Result<(), String> {
     let el = EventLoop::new();
     let wb = WindowBuilder::new().with_title("A fantastic window!");
 
-    let windowed_context = ContextBuilder::new().build_windowed(wb, &el).map_err(|err| err.to_string())?;
+    let windowed_context = ContextBuilder::new()
+        .build_windowed(wb, &el)
+        .map_err(|err| err.to_string())?;
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     println!(
@@ -187,17 +157,18 @@ fn main() -> Result<(), String> {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                match callback.vlc_mutex.try_lock() {
-                    Ok(locked) => {
-                        if !*locked {
+                match context.try_lock() {
+                    Ok(mut mutex) => {
+                        let mut context = &mut *mutex;
+                        if !context.locked {
                             unsafe {
                                 gl.upload_texture(
-                                    callback.pixel_buffer.as_ptr() as *const _,
-                                    callback.video_width,
-                                    callback.video_height,
+                                    context.pixel_buffer.as_ptr() as *const _,
+                                    video_width,
+                                    video_height,
                                 );
                             }
-                            callback.need_update = false;
+                            context.need_update = false;
                         }
                     }
                     Err(_) => (),
