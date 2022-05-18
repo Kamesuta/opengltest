@@ -1,4 +1,5 @@
 mod support;
+mod media;
 
 extern crate vlc;
 
@@ -16,6 +17,7 @@ use libc::c_void;
 use std::ffi::CString;
 use std::sync::Mutex;
 use vlc_sys as sys;
+use media::MediaExt;
 
 const TARGET_FPS: u64 = 60;
 
@@ -77,7 +79,7 @@ impl VlcCallback {
     extern "C" fn vlc_display(opaque: *mut c_void, picture: *mut c_void) {}
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     // TODO: Linux, Mac対応
     // TODO: Audio OpenAL
     // OK: YouTube対応
@@ -87,19 +89,18 @@ fn main() {
     let path = match args.get(1) {
         Some(s) => s,
         None => {
-            println!("Usage: cli_audio_player path_to_a_media_file");
-            return;
+            return Err("No media file specified".to_string());
         }
     };
-    let instance = Instance::new().unwrap();
+    let instance = Instance::new().ok_or("Failed to create instance")?;
 
-    let md = Media::new_location(&instance, path).unwrap();
-    let mdp = MediaPlayer::new(&instance).unwrap();
+    let md = Media::new_location(&instance, path).ok_or("Failed to create media")?;
+    let mdp = MediaPlayer::new(&instance).ok_or("Failed to create media player")?;
 
     let mut callback = VlcCallback::new(512, 512);
     callback.register(&mdp);
 
-    let c_str = CString::new("f32l").unwrap();
+    let c_str = CString::new("f32l").map_err(|err| err.to_string())?;
     unsafe {
         sys::libvlc_audio_set_format(mdp.raw(), c_str.as_ptr(), 48000, 2);
     }
@@ -130,22 +131,13 @@ fn main() {
         _ => (),
     });
 
-    let md = unsafe {
-        sys::libvlc_media_parse_with_options(
-            md.raw(),
+    let md = {
+        md.parse_with_options(
             sys::libvlc_media_parse_flag_t_libvlc_media_parse_network,
             -1,
-        );
+        )?;
         rx.recv().unwrap();
-        let subitems: *mut sys::libvlc_media_list_t = sys::libvlc_media_subitems(md.raw());
-        let media = sys::libvlc_media_list_item_at_index(subitems, 0);
-        struct MediaStruct {
-            ptr: *mut sys::libvlc_media_t,
-        }
-        let media_st = MediaStruct { ptr: media };
-        assert!(media_st.ptr != std::ptr::null_mut());
-        let md: Media = std::mem::transmute(media_st);
-        md
+        md.subitems().item_at_index(0)
     };
 
     let em = md.event_manager();
@@ -161,13 +153,12 @@ fn main() {
 
     mdp.set_media(&md);
     // Start playing
-    mdp.play().unwrap();
+    mdp.play().map_err(|_| "Failed to play")?;
 
     let el = EventLoop::new();
     let wb = WindowBuilder::new().with_title("A fantastic window!");
 
-    let windowed_context = ContextBuilder::new().build_windowed(wb, &el).unwrap();
-
+    let windowed_context = ContextBuilder::new().build_windowed(wb, &el).map_err(|err| err.to_string())?;
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     println!(
