@@ -126,6 +126,7 @@ impl Gl {
         self.gl.GenerateMipmap(gl::TEXTURE_2D);
     }
 
+    #[allow(dead_code)]
     pub fn upload_texture_img(&self, path: &str) {
         // テクスチャ
         let img = image::open(path).unwrap();

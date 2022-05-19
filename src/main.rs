@@ -3,6 +3,7 @@ mod support;
 
 extern crate vlc;
 
+use std::os::windows::prelude::OsStringExt;
 use std::sync::mpsc::channel;
 use std::time::Instant;
 use vlc::Event as VlcEvent;
@@ -17,9 +18,41 @@ use libc::c_void;
 use media::{MediaExt, MediaPlayerExt};
 use std::sync::{Arc, Mutex};
 
+use alto::{Alto, Mono, Source};
+use std::ffi::OsString;
+
 const TARGET_FPS: u64 = 60;
 
 fn main() -> Result<(), String> {
+    let alto = Alto::load_default().unwrap();
+
+    // for s in alto.enumerate_outputs() {
+    //     println!("Found device: {}", w.to_str().map_err(|e| e.to_string())?);
+    // }
+    
+    let device = alto.open(None).unwrap(); // Opens the default audio device
+    let context = device.new_context(None).unwrap(); // Creates a default context
+    
+    // Configure listener
+    context.set_position([1.0, 4.0, 5.0]).unwrap();
+    context.set_velocity([2.5, 0.0, 0.0]).unwrap();
+    context.set_orientation(([0.0, 0.0, 1.0], [0.0, 1.0, 0.0])).unwrap();
+    
+    // Now you can load your samples and store them in a buffer with
+    // `context.new_buffer(samples, frequency)`;
+
+    let freq = 44100;
+    let key_freq = 440.0;
+    let mut samples: Vec<i16> = vec![0; freq];
+    for i in 0..samples.len() {
+        samples[i] = ((key_freq * std::f32::consts::PI * 2.0 * i as f32 / freq as f32).sin() * i16::MAX as f32) as i16;
+    }
+    let buf = context.new_buffer::<Mono<i16>, _>(samples, freq as i32).unwrap();
+    let buf = Arc::new(buf);
+    let mut source = context.new_static_source().unwrap();
+    source.set_buffer(buf).unwrap();
+    source.play();
+
     // TODO: Linux, Mac対応
     // TODO: Audio OpenAL
     // OK: YouTube対応
