@@ -24,12 +24,8 @@ const TARGET_FPS: u64 = 60;
 fn main() -> Result<(), String> {
     let sample_channel = 2;
     let sample_freq: u32 = 44100;
-    let alto = Alto::load_default().unwrap();
 
-    // for s in alto.enumerate_outputs() {
-    //     println!("Found device: {}", w.to_str().map_err(|e| e.to_string())?);
-    // }
-    
+    let alto = Alto::load_default().unwrap();
     let al_device = alto.open(None).unwrap(); // Opens the default audio device
     let al_context = al_device.new_context(None).unwrap(); // Creates a default context
     
@@ -38,24 +34,11 @@ fn main() -> Result<(), String> {
     al_context.set_velocity([2.5, 0.0, 0.0]).unwrap();
     al_context.set_orientation(([0.0, 0.0, 1.0], [0.0, 1.0, 0.0])).unwrap();
     
-    // Now you can load your samples and store them in a buffer with
-    // `context.new_buffer(samples, frequency)`;
-
-    // let key_freq = 440.0;
-    // let mut samples: Vec<i16> = vec![0; freq];
-    // for i in 0..samples.len() {
-    //     samples[i] = ((key_freq * std::f32::consts::PI * 2.0 * i as f32 / freq as f32).sin() * i16::MAX as f32) as i16;
-    // }
-    let mut source = al_context.new_streaming_source().unwrap();
-    // for _i in 0..16 {
-    //     let buf = context.new_buffer::<Stereo<i16>, _>(samples.clone(), freq as i32).unwrap();
-    //     source.queue_buffer(buf).unwrap();
-    // }
-    source.play();
+    let source = al_context.new_streaming_source().unwrap();
     let source = Arc::new(Mutex::new(source));
 
     // TODO: Linux, Mac対応
-    // TODO: Audio OpenAL
+    // OK: Audio OpenAL
     // OK: YouTube対応
     // OK: 一時停止したときにポーズされるようにする
     let args: Vec<String> = std::env::args().collect();
@@ -106,14 +89,13 @@ fn main() -> Result<(), String> {
 
     mdp.set_audio_format("S16N", sample_freq, sample_channel);
     mdp.set_callbacks(
-        move |samples, count, pts| {
+        move |samples, count, _pts| {
             // println!("a{} {}", nb, pts);
             let mut source = source.lock().unwrap();
             let sample_vec = unsafe {
                 std::slice::from_raw_parts(samples as *const i16, (count * sample_channel) as usize)
             };
             let buf = if source.buffers_processed() <= 0 {
-                println!("created {} {}", count, pts);
                 al_context.new_buffer::<Stereo<i16>, _>(sample_vec, sample_freq as i32).unwrap()
             } else {
                 let mut buf = source.unqueue_buffer().unwrap();
@@ -123,7 +105,6 @@ fn main() -> Result<(), String> {
             source.queue_buffer(buf).unwrap();
             let state = source.state();
             if state != SourceState::Playing {
-                println!("play: {:?}", state);
                 source.play();
             }
         },
@@ -193,7 +174,6 @@ fn main() -> Result<(), String> {
     }
 
     let gl = support::load(&windowed_context.context());
-    //gl.upload_texture_img("res/tuku.png");
     let mut state = GameState { pos: [0.0, 0.0] };
 
     el.run(move |event, _, control_flow| {
