@@ -3,7 +3,6 @@ mod support;
 
 extern crate vlc;
 
-use std::os::windows::prelude::OsStringExt;
 use std::sync::mpsc::channel;
 use std::time::Instant;
 use vlc::Event as VlcEvent;
@@ -18,40 +17,42 @@ use libc::c_void;
 use media::{MediaExt, MediaPlayerExt};
 use std::sync::{Arc, Mutex};
 
-use alto::{Alto, Mono, Source};
-use std::ffi::OsString;
+use alto::{Alto, Source, Stereo, SourceState};
 
 const TARGET_FPS: u64 = 60;
 
 fn main() -> Result<(), String> {
+    let sample_channel = 2;
+    let sample_freq: u32 = 44100;
     let alto = Alto::load_default().unwrap();
 
     // for s in alto.enumerate_outputs() {
     //     println!("Found device: {}", w.to_str().map_err(|e| e.to_string())?);
     // }
     
-    let device = alto.open(None).unwrap(); // Opens the default audio device
-    let context = device.new_context(None).unwrap(); // Creates a default context
+    let al_device = alto.open(None).unwrap(); // Opens the default audio device
+    let al_context = al_device.new_context(None).unwrap(); // Creates a default context
     
     // Configure listener
-    context.set_position([1.0, 4.0, 5.0]).unwrap();
-    context.set_velocity([2.5, 0.0, 0.0]).unwrap();
-    context.set_orientation(([0.0, 0.0, 1.0], [0.0, 1.0, 0.0])).unwrap();
+    al_context.set_position([1.0, 4.0, 5.0]).unwrap();
+    al_context.set_velocity([2.5, 0.0, 0.0]).unwrap();
+    al_context.set_orientation(([0.0, 0.0, 1.0], [0.0, 1.0, 0.0])).unwrap();
     
     // Now you can load your samples and store them in a buffer with
     // `context.new_buffer(samples, frequency)`;
 
-    let freq = 44100;
-    let key_freq = 440.0;
-    let mut samples: Vec<i16> = vec![0; freq];
-    for i in 0..samples.len() {
-        samples[i] = ((key_freq * std::f32::consts::PI * 2.0 * i as f32 / freq as f32).sin() * i16::MAX as f32) as i16;
-    }
-    let buf = context.new_buffer::<Mono<i16>, _>(samples, freq as i32).unwrap();
-    let buf = Arc::new(buf);
-    let mut source = context.new_static_source().unwrap();
-    source.set_buffer(buf).unwrap();
+    // let key_freq = 440.0;
+    // let mut samples: Vec<i16> = vec![0; freq];
+    // for i in 0..samples.len() {
+    //     samples[i] = ((key_freq * std::f32::consts::PI * 2.0 * i as f32 / freq as f32).sin() * i16::MAX as f32) as i16;
+    // }
+    let mut source = al_context.new_streaming_source().unwrap();
+    // for _i in 0..16 {
+    //     let buf = context.new_buffer::<Stereo<i16>, _>(samples.clone(), freq as i32).unwrap();
+    //     source.queue_buffer(buf).unwrap();
+    // }
     source.play();
+    let source = Arc::new(Mutex::new(source));
 
     // TODO: Linux, Mac対応
     // TODO: Audio OpenAL
@@ -103,10 +104,28 @@ fn main() -> Result<(), String> {
         Some(Box::new(|| {})),
     );
 
-    mdp.set_audio_format("f32l", 48000, 2);
+    mdp.set_audio_format("S16N", sample_freq, sample_channel);
     mdp.set_callbacks(
-        |_samples, count, pts| {
-            println!("{} {}", count, pts);
+        move |samples, count, pts| {
+            // println!("a{} {}", nb, pts);
+            let mut source = source.lock().unwrap();
+            let sample_vec = unsafe {
+                std::slice::from_raw_parts(samples as *const i16, (count * sample_channel) as usize)
+            };
+            let buf = if source.buffers_processed() <= 0 {
+                println!("created {} {}", count, pts);
+                al_context.new_buffer::<Stereo<i16>, _>(sample_vec, sample_freq as i32).unwrap()
+            } else {
+                let mut buf = source.unqueue_buffer().unwrap();
+                buf.set_data::<Stereo<i16>, _>(sample_vec, sample_freq as i32).unwrap();
+                buf
+            };
+            source.queue_buffer(buf).unwrap();
+            let state = source.state();
+            if state != SourceState::Playing {
+                println!("play: {:?}", state);
+                source.play();
+            }
         },
         None,
         None,
@@ -144,7 +163,7 @@ fn main() -> Result<(), String> {
     let em = md.event_manager();
     let _ = em.attach(EventType::MediaStateChanged, move |e, _| match e {
         VlcEvent::MediaStateChanged(s) => {
-            println!("State : {:?}", s);
+            //println!("State : {:?}", s);
             if s == State::Ended || s == State::Error {
                 // Ended
             }
