@@ -8,7 +8,7 @@ use std::time::Instant;
 use vlc::Event as VlcEvent;
 use vlc::{EventType, Instance, Media, MediaPlayer, State};
 
-use glutin::event::{Event, WindowEvent};
+use glutin::event::{Event, WindowEvent, ElementState, VirtualKeyCode};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
@@ -88,12 +88,33 @@ fn main() -> Result<(), String> {
     );
 
     mdp.set_audio_format("S16N", sample_freq, sample_channel);
+    let s1 = Arc::clone(&source);
+    let s2 = Arc::clone(&source);
+    let s3 = Arc::clone(&source);
+    let s4 = Arc::clone(&source);
+    let flush: Arc<Mutex<Option<i64>>> = Arc::new(Mutex::new(None));
+    let r1 = Arc::clone(&flush);
+    let r2 = Arc::clone(&flush);
+    let r3 = Arc::clone(&flush);
+    let r4 = Arc::clone(&flush);
     mdp.set_callbacks(
-        move |samples, count, _pts| {
-            // println!("a{} {}", nb, pts);
-            let mut source = source.lock().unwrap();
+        move |samples, mut count, pts| {
+            println!("play\t{}\t{}", count, pts);
+            let mut source = s1.lock().unwrap();
+            let mut samples = samples as *const i16;
+            // let mut flush = r1.lock().unwrap();
+            // if let Some(flushed) = *flush {
+            //     for _i in 0..source.buffers_processed() {
+            //         source.unqueue_buffer().unwrap();
+            //     }
+            //     let offset = std::cmp::min((pts - flushed) * sample_freq as i64 / 1_000_000, count as i64);
+            //     samples = unsafe { samples.offset(offset as isize * std::mem::size_of::<i16>() as isize) };
+            //     count -= offset as u32;
+            //     *flush = None;
+            // };
+
             let sample_vec = unsafe {
-                std::slice::from_raw_parts(samples as *const i16, (count * sample_channel) as usize)
+                std::slice::from_raw_parts(samples, count as usize * std::mem::size_of::<i16>())
             };
             let buf = if source.buffers_processed() <= 0 {
                 al_context.new_buffer::<Stereo<i16>, _>(sample_vec, sample_freq as i32).unwrap()
@@ -108,10 +129,39 @@ fn main() -> Result<(), String> {
                 source.play();
             }
         },
-        None,
-        None,
-        None,
-        None,
+        Some(Box::new(move |pts| {
+            println!("pause: {}", pts);
+            let mut source = s2.lock().unwrap();
+            source.stop();
+            for _i in 0..source.buffers_processed() {
+                source.unqueue_buffer().unwrap();
+            }
+            source.play();
+            *r2.lock().unwrap() = Some(pts);
+        })),
+        Some(Box::new(move |pts| {
+            println!("resume: {}", pts);
+            let mut source = s3.lock().unwrap();
+            source.stop();
+            for _i in 0..source.buffers_processed() {
+                source.unqueue_buffer().unwrap();
+            }
+            source.play();
+            *r3.lock().unwrap() = Some(pts);
+        })),
+        Some(Box::new(move |pts| {
+            println!("flush: {}", pts);
+            let mut source = s4.lock().unwrap();
+            source.stop();
+            for _i in 0..source.buffers_processed() {
+                source.unqueue_buffer().unwrap();
+            }
+            source.play();
+            *r4.lock().unwrap() = Some(pts);
+        })),
+        Some(Box::new(move || {
+            println!("drain");
+        })),
     );
 
     let (tx, rx) = channel::<()>();
@@ -186,6 +236,24 @@ fn main() -> Result<(), String> {
                 WindowEvent::Resized(physical_size) => windowed_context.resize(physical_size),
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::CursorMoved { position, .. } => state.pos = [position.x, position.y],
+                WindowEvent::KeyboardInput { device_id: _, input, is_synthetic } => {
+                    if is_synthetic {
+                        return;
+                    }
+                    if let Some(key) = input.virtual_keycode {
+                        if input.state == ElementState::Pressed {
+                            match key {
+                                VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
+                                VirtualKeyCode::Space => mdp.set_pause(mdp.is_playing()),
+                                VirtualKeyCode::Z => { mdp.stop(); mdp.play().unwrap(); },
+                                VirtualKeyCode::Return => mdp.set_position(0.0),
+                                VirtualKeyCode::Right => mdp.set_position(mdp.get_position().unwrap() + 1.0),
+                                VirtualKeyCode::Left => mdp.set_position(mdp.get_position().unwrap() - 1.0),
+                                _ => (),
+                            }
+                        }
+                    }
+                }
                 _ => (),
             },
             Event::RedrawRequested(_) => {

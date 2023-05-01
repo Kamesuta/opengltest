@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["https://www.youtube.com/watch?v=2CGcV4gTS9o"],
+            "args": ["https://cdn.discordapp.com/attachments/880666058233614386/976250948479496222/RealisticWatermelon.mp4"],
             "cwd": "${workspaceFolder}"
         },
         {
