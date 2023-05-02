@@ -10,6 +10,7 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer;
 import uk.co.caprica.vlcj.player.base.callback.DefaultAudioCallbackAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
 
+import javax.swing.*;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 
@@ -18,14 +19,26 @@ import static org.lwjgl.openal.ALC10.*;
 
 
 public class Main {
-    private static final String MEDIA_MRL = "";
+    private static final String MEDIA_MRL = "C:\\Users\\Kamesuta\\Downloads\\RealisticWatermelon.mp4";
     private static final int SAMPLE_RATE = 48000;
     private static final boolean SPATIAL = true;
     private static final int CHANNELS = SPATIAL ? 1 : 2;
     private static final int BIT = 16;
     private static int SOURCE;
+    /** 一時停止/再開ボタンのリクエスト */
+    private static boolean buttonRequest = false;
 
     public static void main(String[] args) throws Exception {
+        // 一時停止/再開ボタン
+        JFrame jf = new JFrame();
+        jf.setSize(100, 100);
+        JButton jb = new JButton("Pause/Resume");
+        jb.addActionListener(e -> {
+            buttonRequest = true;
+        });
+        jf.add(jb);
+        jf.setVisible(true);
+
         alInit();
 
         MediaPlayerFactory factory = new MediaPlayerFactory();
@@ -68,6 +81,17 @@ public class Main {
 
         while (true) {
             Thread.sleep(10);
+
+            // 一時停止/再開ボタンのリクエストがあれば実行
+            if (buttonRequest) {
+                if (mediaPlayer.status().isPlaying()) {
+                    mediaPlayer.controls().pause();
+                } else {
+                    mediaPlayer.controls().play();
+                }
+            }
+            buttonRequest = false;
+
             alListenerUpdate();
         }
     }
