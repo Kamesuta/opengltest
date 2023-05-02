@@ -48,17 +48,19 @@ public class Main {
 
             @Override
             protected void onPlay(MediaPlayer mediaPlayer, byte[] data, int sampleCount, long pts) {
+                // サンプルカウント、ptsとともにprint
+                System.out.println("Play! " + sampleCount + " " + pts);
                 alUpdate(data);
             }
 
             @Override
             public void pause(MediaPlayer mediaPlayer, long pts) {
-                System.out.println("Pause!");
+                System.out.println("Pause! " + pts);
             }
 
             @Override
             public void resume(MediaPlayer mediaPlayer, long pts) {
-                System.out.println("Resume!");
+                System.out.println("Resume! " + pts);
             }
 
             @Override
